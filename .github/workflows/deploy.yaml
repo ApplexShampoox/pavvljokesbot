@@ -18,7 +18,7 @@ jobs:
       - name: Install SSH client
         run: sudo apt-get install -y openssh-client
 
-      # Шаг 3: Проверка и создание папки на сервере
+      # Шаг 3: Проверка и создание директории, если её нет
       - name: Ensure deployment directory exists
         uses: appleboy/ssh-action@v0.1.5
         with:
@@ -28,7 +28,7 @@ jobs:
           script: |
             mkdir -p /var/www/pavvljokesbot
 
-      # Шаг 4: Копирование файлов через rsync с использованием файла исключений
+      # Шаг 4: Синхронизация файлов с проверкой .rsync-exclude
       - name: Sync files with rsync
         uses: appleboy/ssh-action@v0.1.5
         with:
@@ -36,20 +36,21 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           script: |
-            rsync -av --delete \
-              --exclude-from='.rsync-exclude' \
-              ./ /var/www/pavvljokesbot/
+            if [ -f "/var/www/pavvljokesbot/.rsync-exclude" ]; then
+              rsync -av --delete --exclude-from='/var/www/pavvljokesbot/.rsync-exclude' ./ /var/www/pavvljokesbot/
+            else
+              rsync -av --delete ./ /var/www/pavvljokesbot/
+            fi
 
-      # Шаг 5: Установка зависимостей и перезапуск бота
-      - name: Deploy bot via SSH
+      # Шаг 5: Создание .env файла с переменными окружения
+      - name: Create .env file
         uses: appleboy/ssh-action@v0.1.5
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           script: |
-            cd /var/www/pavvljokesbot
-            cat <<EOF > .env
+            cat <<EOF > /var/www/pavvljokesbot/.env
             BOT_TOKEN=${{ secrets.BOT_TOKEN }}
             DB_HOST=${{ secrets.DB_HOST }}
             DB_PORT=${{ secrets.DB_PORT }}
@@ -57,5 +58,15 @@ jobs:
             DB_PASSWORD=${{ secrets.DB_PASSWORD }}
             DB_NAME=${{ secrets.DB_NAME }}
             EOF
+
+      # Шаг 6: Установка зависимостей и перезапуск бота
+      - name: Install dependencies and restart bot
+        uses: appleboy/ssh-action@v0.1.5
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd /var/www/pavvljokesbot
             npm install --production
             pm2 restart index.js || pm2 start index.js --name pavvljokesbot
