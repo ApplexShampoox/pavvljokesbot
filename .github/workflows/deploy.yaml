@@ -1,0 +1,61 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Шаг 1: Проверка кода
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      # Шаг 2: Установка SSH клиента
+      - name: Install SSH client
+        run: sudo apt-get install -y openssh-client
+
+      # Шаг 3: Проверка и создание папки на сервере
+      - name: Ensure deployment directory exists
+        uses: appleboy/ssh-action@v0.1.5
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            mkdir -p /var/www/pavvljokesbot
+
+      # Шаг 4: Копирование файлов через rsync с использованием файла исключений
+      - name: Sync files with rsync
+        uses: appleboy/ssh-action@v0.1.5
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            rsync -av --delete \
+              --exclude-from='.rsync-exclude' \
+              ./ /var/www/pavvljokesbot/
+
+      # Шаг 5: Установка зависимостей и перезапуск бота
+      - name: Deploy bot via SSH
+        uses: appleboy/ssh-action@v0.1.5
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd /var/www/pavvljokesbot
+            cat <<EOF > .env
+            BOT_TOKEN=${{ secrets.BOT_TOKEN }}
+            DB_HOST=${{ secrets.DB_HOST }}
+            DB_PORT=${{ secrets.DB_PORT }}
+            DB_USER=${{ secrets.DB_USER }}
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            DB_NAME=${{ secrets.DB_NAME }}
+            EOF
+            npm install --production
+            pm2 restart index.js || pm2 start index.js --name pavvljokesbot
